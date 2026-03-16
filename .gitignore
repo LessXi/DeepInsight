@@ -32,7 +32,6 @@ env/
 
 # Output
 output_report.md
-*.md
 !README.md
 
 # IDE
