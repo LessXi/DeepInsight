@@ -14,60 +14,67 @@ class SearchQuerySchema(BaseModel):
     )
 
 async def research_node(state: ResearchState):
-    """异步并行研究员 Agent：具备统一重试能力"""
-    print('--- 🕵️‍♂️ 并行研究员 Agent：正在全网同步检索深度资料 ---')
+    """异步并行研究员 Agent：具备跨章节知识去重能力"""
+    print('--- 🕵️‍♂️ 并行研究员 Agent：正在检索深度资料 (Deduplication Enabled) ---')
     
     topic = state.get('topic', '')
     outline = state.get('outline', [])
     revision_count = state.get('revision_count', 0)
     research_data = state.get('research_data', {})
     
+    # 💡 杀手级设计：跨章节去重池与同步锁
+    # 确保同一个搜索 Query 带来的重复信息在整个状态中只保留一份副本
+    seen_queries = set()
+    dedup_lock = asyncio.Lock()
+    
     llm = get_llm(role="researcher")
     parser = JsonOutputParser(pydantic_object=SearchQuerySchema)
     
     prompt = ChatPromptTemplate.from_messages([
-        ('system', '''你是顶尖的情报研究员。针对总主题【{topic}】，你需要为当前指定的【大纲章节】生成几个精准的搜索关键词（Query）。\n{format_instructions}'''),
-        ('user', '当前章节：{chapter}')
+        ('system', '''你是一位顶尖的情报研究员。针对主题【{topic}】，你需要为指定大纲章节生成精准的搜索词。'''),
+        ('user', '当前章节：{chapter}\n\n{format_instructions}')
     ])
     
     chain = prompt | llm | parser
 
     @async_retry(max_retries=3, base_delay=5)
     async def _process_chapter_with_retry(chapter: str):
-        print(f'      [🔍 启动搜索] 章节: {chapter[:20]}...')
-
         # 1. 异步生成搜索词
         query_response = await chain.ainvoke({
             'topic': topic,
             'chapter': chapter,
             'format_instructions': parser.get_format_instructions()
         })
-        # 💡 demo版本，仅取前 2 个核心关键词，减少token压力
+        # 限制生成词数量，减少冗余
         queries = query_response.get('queries', [chapter])[:2]
-        print(f'      [📡 生成核心关键词]: {", ".join(queries)}')
+        
+        chapter_context = ""
+        for q in queries:
+            # 💡 跨章节去重检查
+            async with dedup_lock:
+                if q in seen_queries:
+                    chapter_context += f'【搜索词】: {q}\n(该维度资料已在其他章节中覆盖，跳过重复抓取)\n'
+                    continue
+                seen_queries.add(q)
+            
+            # 2. 执行实际搜索
+            print(f'      [📡 实时抓取]: {q[:20]}...')
+            res = await async_search_web(q, max_results=1)
+            chapter_context += f'【搜索词】: {q}\n{res}\n'
+            
+        return chapter, chapter_context
 
-        # 每个关键词只取 1 条最相关的结果，共 2 条
-        search_tasks = [async_search_web(q, max_results=1) for q in queries]
-        search_results = await asyncio.gather(*search_tasks)
+    # 3. 并发执行所有章节
+    tasks = [_process_chapter_with_retry(ch) for ch in outline]
+    results = await asyncio.gather(*tasks)
+    
+    new_data = {}
+    for ch, content in results:
+        new_data[ch] = content
 
-        context = ""
-        for q, res in zip(queries, search_results):
-            context += f'【搜索词】: {q}\n{res}\n'
-
-        print(f'      [✅ 章节就绪]: {chapter[:20]}... (已获取 2 条核心资料)')
-        return chapter, context
-
-
-    # 并发执行所有章节
-    tasks = [_process_chapter_with_retry(chapter) for chapter in outline]
-    try:
-        results = await asyncio.gather(*tasks)
-        for chapter, context in results:
-            research_data[chapter] = context
-    except Exception as e:
-        print(f"      [研究节点部分失效]: {e}")
-
+    print(f'\n--- ✅ 研究完成：共处理 {len(outline)} 个章节 ---')
+    
     return {
-        'research_data': research_data,
+        'research_data': new_data,
         'revision_count': revision_count + 1
     }

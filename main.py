@@ -7,13 +7,23 @@ async def main():
     print("🚀 启动 DeepInsight 多智能体研报系统...")
     app = build_graph()
     
-    # 支持命令行参数输入主题
+    # 💡 杀手级优化：动态主题获取逻辑
+    topic = ""
+    # 1. 优先尝试从命令行参数获取
     if len(sys.argv) > 1:
         topic = " ".join(sys.argv[1:])
-    else:
-        topic = "2026年AI空间计算硬件发展趋势"
     
-    print(f"\n💡 研究主题: {topic}\n" + "="*50)
+    # 2. 如果没传参，开启交互式询问
+    if not topic:
+        print("\n🔎 请输入你想深入研究的主题（例如：'2026年AI空间计算硬件发展趋势'）：")
+        topic = input(">> ").strip()
+    
+    # 3. 兜底默认值
+    if not topic:
+        topic = "2026年AI空间计算硬件发展趋势"
+        print(f"      [ℹ️ 提示]: 未输入主题，已使用默认主题: {topic}")
+    
+    print(f"\n💡 最终确定的研究主题: {topic}\n" + "="*50)
     
     # 初始化状态并触发图的运行
     initial_state = {
@@ -25,7 +35,7 @@ async def main():
     # astream() 是异步流式调用，支持图中包含 async 节点
     async for output in app.astream(initial_state):
         for node_name, value in output.items():
-            print(f"\n>>>> [节点流转] 🚩 进入节点: {node_name.upper()}")
+            print(f"\n>>>> [节点流转] 🚩 节点完成: {node_name.upper()}")
             # 增量更新状态
             if final_state is None:
                 final_state = initial_state.copy()

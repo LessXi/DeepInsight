@@ -66,8 +66,9 @@ async def reviewer_node(state: ResearchState):
 
     try:
         response = await _call_reviewer()
-        is_ready = response.get("is_ready", True)
-        feedback = response.get("feedback", "")
+        # 💡 核心修复：改为默认不通过 (False)
+        is_ready = response.get("is_ready", False)
+        feedback = response.get("feedback", "未提供具体反馈。")
         
         if is_ready:
             print("      [✅ 审核通过]: 报告质量达标，准予发布。")
@@ -79,5 +80,5 @@ async def reviewer_node(state: ResearchState):
             "review_feedback": feedback
         }
     except Exception as e:
-        print(f"    [审核异常]: {e}，默认降级为通过。")
-        return {"is_ready": True, "review_feedback": ""}
+        print(f"    [审核异常]: {e}，为了安全起见，默认打回重做。")
+        return {"is_ready": False, "review_feedback": f"审核节点发生异常: {str(e)}"}

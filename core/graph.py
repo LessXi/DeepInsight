@@ -26,11 +26,12 @@ def build_graph():
 
     # 3. 定义条件流转（循环机制）
     def check_approval(state: ResearchState) -> str:
-        # 使用 is_ready 替代 is_approved
-        if state.get("is_ready", True) or state.get("revision_count", 0) >= 3:
+        # 💡 核心修复：改为默认不通过 (False)
+        # 只有显式通过，或修改次数达标，才会 END
+        if state.get("is_ready", False) or state.get("revision_count", 0) >= 3:
             return END
         else:
-            print(f"      [⚠️ 审核不通过]: {state.get('review_feedback', '理由未知')}")
+            print(f"      [⚠️ 审核不通过]: {state.get('review_feedback', '请进一步完善资料。')}")
             return "researcher"
 
     # 将条件判断绑定到 reviewer 节点之后
@@ -39,7 +40,8 @@ def build_graph():
         check_approval,
         {
             END: END,
-            "researcher": "researcher"
+            "researcher": "researcher",
+            "writer": "writer"
         }
     )
 
