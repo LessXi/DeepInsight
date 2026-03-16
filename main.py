@@ -1,8 +1,9 @@
-from core.graph import build_graph
+import asyncio
 import os
 import sys
+from core.graph import build_graph
 
-def main():
+async def main():
     print("🚀 启动 DeepInsight 多智能体研报系统...")
     app = build_graph()
     
@@ -21,23 +22,34 @@ def main():
     }
     
     final_state = None
-    # stream() 可以让我们实时看到状态在哪个节点流转
-    for output in app.stream(initial_state):
-        for key, value in output.items():
-            print(f"\n[✅ 节点完成]: {key}")
-            final_state = value # 持续记录最新的状态
+    # astream() 是异步流式调用，支持图中包含 async 节点
+    async for output in app.astream(initial_state):
+        for node_name, value in output.items():
+            print(f"\n>>>> [节点流转] 🚩 进入节点: {node_name.upper()}")
+            # 增量更新状态
+            if final_state is None:
+                final_state = initial_state.copy()
+            final_state.update(value)
+            
+            # 特殊打印：如果是 planner 节点，打印生成的大纲
+            if node_name == "planner" and "outline" in value:
+                print(f"      [📊 大纲规划完成]:")
+                for i, ch in enumerate(value["outline"], 1):
+                    print(f"        {i}. {ch}")
 
     print("\n" + "="*50)
     
     # 最终成文导出
-    if final_state and "draft" in final_state:
+    if final_state and final_state.get("draft"):
         output_file = os.path.join(os.path.dirname(__file__), "output_report.md")
         with open(output_file, "w", encoding="utf-8") as f:
             f.write(final_state["draft"])
         print(f"🎉 任务完成！深度研报已生成并保存至：\n   {output_file}")
     else:
-        print("⚠️ 未能成功生成草稿，请检查API配置和网络连接。")
-        sys.exit(1)
+        print("⚠️ 未能成功生成草稿，请检查流程输出。")
 
 if __name__ == "__main__":
-    main()
+    # 使用 Windows 下兼容的事件循环策略
+    if sys.platform == 'win32':
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(main())

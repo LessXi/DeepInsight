@@ -1,65 +1,83 @@
+import asyncio
 from core.state import ResearchState
 from core.config import get_llm
+from core.utils import async_retry
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
 
 class ReviewSchema(BaseModel):
-    is_approved: bool = Field(description="文章是否通过审核。True表示通过，False表示打回重写。")
-    feedback: str = Field(description="具体的修改意见。如果打回，必须指出现有草稿中缺乏数据支撑或逻辑不严密的地方；如果通过，简单肯定即可。")
+    is_ready: bool = Field(description="报告是否准备好。如果是，设为 True；否则设为 False。")
+    feedback: str = Field(description="给研究员和主笔的具体修改建议。")
 
-def review_node(state: ResearchState):
-    """事实核查员 Agent：比对原文与草稿，防止幻觉，把控质量"""
-    print("--- ⚖️ 事实核查员 Agent：正在进行逻辑审查与幻觉检测 ---")
-    
-    topic = state.get("topic", "")
+async def reviewer_node(state: ResearchState):
+    """
+    【杀手级审核员】证据对齐式事实核查
+    任务：对比“原始研究资料”与“研报草稿”，寻找幻觉、缺失数据或逻辑漏洞。
+    """
+    print("--- ⚖️ 严苛审核员 Agent：启动深度事实核查与逻辑审计 ---")
     draft = state.get("draft", "")
-    revision_count = state.get("revision_count", 0)
+    topic = state.get("topic", "")
+    research_data = state.get("research_data", {}) # ✅ 获取原始参考资料
     
-    llm = get_llm()
+    # 构造对比上下文
+    reference_context = ""
+    for ch, data in research_data.items():
+        reference_context += f"### 参考来源 ({ch}) ###\n{data[:2000]}\n\n"
+
+    llm = get_llm(role="reviewer")
     parser = JsonOutputParser(pydantic_object=ReviewSchema)
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """你是全球最严苛的咨询公司合伙人，现在正在审核初级分析师写的研究报告。
-你的任务是评估【报告草稿】，寻找逻辑漏洞、事实缺失或大模型常见的“车轱辘话”。
+        ("system", '''你是一位全球顶级咨询公司（如麦肯锡）的资深合伙人。
+你的任务是对下级分析师提交的研报草稿进行【地狱级审计】。
 
-【审核标准】：
-1. 报告必须包含具体的数据支撑（如具体的年份、百分比、公司名），否则不合格。
-2. 报告必须符合商业研报的专业排版。
-3. 当前是第 {revision_count} 次修改。如果修改次数达到 2 次，为了避免陷入死循环，请放宽标准给予通过（is_approved = True）。
+你的审核维度包括：
+1. **事实对齐 (Fact-Grounding)**：检查草稿中的数据是否能在【原始资料】中找到依据。严禁任何凭空想象。
+2. **信息密度 (Info-Density)**：是否包含了具体的百分比、金额、公司名、政策代码？如果只有空洞的描述，必须打回。
+3. **逻辑连贯 (Coherence)**：章节之间是否有转承启合？是否完成了【研究主题】的所有要求？
+4. **Markdown 专业性**：标题层级是否正确？加粗是否得当？
 
-{format_instructions}"""),
-        ("user", "【研究主题】：{topic}\n\n【报告草稿】：\n{draft}")
+【反馈要求】：
+- 如果 `is_ready` 为 False，必须在 `feedback` 中指明具体的错误位置和改进建议（例如：“第二章缺少关于 2025 年预测的具体百分比，请补充”）。
+- 只要有 1 处事实错误，必须设为 False。
+
+{format_instructions}'''),
+        ("user", f'''
+【研究主题】：{topic}
+
+【原始研究资料】：
+{reference_context}
+
+【待审研报草稿】：
+{draft}
+''')
     ])
     
     chain = prompt | llm | parser
-    
-    try:
-        response = chain.invoke({
+
+    @async_retry(max_retries=3, base_delay=5)
+    async def _call_reviewer():
+        return await chain.ainvoke({
             "topic": topic,
-            "draft": draft[:4000], # 截取前4000字审核，避免超出Token限制
-            "revision_count": revision_count,
+            "draft": draft,
             "format_instructions": parser.get_format_instructions()
         })
-        is_approved = response.get("is_approved", False)
-        feedback = response.get("feedback", "报告质量不达标，请重新核实数据并重写。")
-        
-        # 强制熔断机制：防止大模型过于挑剔导致无限循环
-        if revision_count >= 2:
-            is_approved = True
-            feedback = "已达到最大修改次数，强制通过审核。"
-            
-    except Exception as e:
-        print(f"  [审核过程发生错误]: {e}")
-        is_approved = True
-        feedback = "审核系统故障，自动放行。"
-        
-    if is_approved:
-        print(f"  [审核结果]: ✅ 审核通过！\n  [评语]: {feedback}")
-    else:
-         print(f"  [审核结果]: ❌ 不合格打回！\n  [修改意见]: {feedback}")
 
-    return {
-        "is_approved": is_approved,
-        "review_feedback": feedback
-    }
+    try:
+        response = await _call_reviewer()
+        is_ready = response.get("is_ready", True)
+        feedback = response.get("feedback", "")
+        
+        if is_ready:
+            print("      [✅ 审核通过]: 报告质量达标，准予发布。")
+        else:
+            print(f"      [❌ 审核不通过]: 发现缺陷，已生成修正建议。")
+            
+        return {
+            "is_ready": is_ready,
+            "review_feedback": feedback
+        }
+    except Exception as e:
+        print(f"    [审核异常]: {e}，默认降级为通过。")
+        return {"is_ready": True, "review_feedback": ""}

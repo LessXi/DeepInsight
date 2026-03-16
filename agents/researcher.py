@@ -1,82 +1,72 @@
-﻿from core.state import ResearchState
+import asyncio
+from core.state import ResearchState
 from core.config import get_llm
+from core.utils import async_retry
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field
 from typing import List, Dict
-from tools.search_tool import search_web
-import time
+from tools.search_tool import async_search_web
 
 class SearchQuerySchema(BaseModel):
     queries: List[str] = Field(
         description='为了深入研究该章节，需要向搜索引擎输入的具体、独立的搜索关键词列表（至少2个）。'
     )
 
-def research_node(state: ResearchState):
-    print('--- 🕵️‍♂️ 研究员 Agent：正在全网检索深度资料 ---')
+async def research_node(state: ResearchState):
+    """异步并行研究员 Agent：具备统一重试能力"""
+    print('--- 🕵️‍♂️ 并行研究员 Agent：正在全网同步检索深度资料 ---')
     
     topic = state.get('topic', '')
     outline = state.get('outline', [])
     revision_count = state.get('revision_count', 0)
-    
     research_data = state.get('research_data', {})
     
-    llm = get_llm()
+    llm = get_llm(role="researcher")
     parser = JsonOutputParser(pydantic_object=SearchQuerySchema)
     
     prompt = ChatPromptTemplate.from_messages([
-        ('system', '''你是顶尖的情报研究员。
-针对总主题【{topic}】，你需要为当前指定的【大纲章节】生成几个精准的、用于谷歌/Tavily等搜索引擎的搜索关键词（Query）。
-要求：关键词要足够专业、长尾，能搜出研报、数据和深度分析。
-
-{format_instructions}'''),
-        ('user', '当前需要搜索的章节是：\n{chapter}')
+        ('system', '''你是顶尖的情报研究员。针对总主题【{topic}】，你需要为当前指定的【大纲章节】生成几个精准的搜索关键词（Query）。\n{format_instructions}'''),
+        ('user', '当前章节：{chapter}')
     ])
     
     chain = prompt | llm | parser
-    
-    print(f'  [共收到 {len(outline)} 个章节的大纲，开始逐一检索...]')
-    
-    chapters_to_search = outline
-    
-    for chapter in chapters_to_search:
-        print(f'\n  🔍 正在分析章节: {chapter}')
-        
-        # 加入带退避的重试机制
-        max_retries = 3
-        queries = [chapter]  # 默认兜底
-        for attempt in range(max_retries):
-            try:
-                time.sleep(2) # 基础缓冲
-                query_response = chain.invoke({
-                    'topic': topic,
-                    'chapter': chapter,
-                    'format_instructions': parser.get_format_instructions()
-                })
-                queries = query_response.get('queries', [chapter])
-                break
-            except Exception as e:
-                print(f'    [生成搜索词尝试 {attempt+1} 失败]: {e}')
-                if attempt < max_retries - 1:
-                    sleep_time = 10 * (attempt + 1)
-                    print(f'    ⏳ 触发限流，休眠 {sleep_time} 秒后重试...')
-                    time.sleep(sleep_time)
-                else:
-                    print('    [最终生成搜索词失败，使用默认章节名兜底]')
-            
-        print(f'    [生成的搜索词]: {queries}')
-        
-        chapter_context = ''
-        for q in queries[:2]:
-            print(f'    ⏳ 正在搜索: {q} ...')
-            search_result = search_web(query=q, max_results=2)
-            chapter_context += f'【搜索词】: {q}\n{search_result}\n'
-            
-        research_data[chapter] = chapter_context
-        print(f'    ✅ 该章节资料收集完成，共获取 {len(chapter_context)} 字符的摘要。')
 
-    print('\n--- 🕵️‍♂️ 研究员 Agent：资料检索完成 ---')
-    
+    @async_retry(max_retries=3, base_delay=5)
+    async def _process_chapter_with_retry(chapter: str):
+        print(f'      [🔍 启动搜索] 章节: {chapter[:20]}...')
+
+        # 1. 异步生成搜索词
+        query_response = await chain.ainvoke({
+            'topic': topic,
+            'chapter': chapter,
+            'format_instructions': parser.get_format_instructions()
+        })
+        # 💡 demo版本，仅取前 2 个核心关键词，减少token压力
+        queries = query_response.get('queries', [chapter])[:2]
+        print(f'      [📡 生成核心关键词]: {", ".join(queries)}')
+
+        # 每个关键词只取 1 条最相关的结果，共 2 条
+        search_tasks = [async_search_web(q, max_results=1) for q in queries]
+        search_results = await asyncio.gather(*search_tasks)
+
+        context = ""
+        for q, res in zip(queries, search_results):
+            context += f'【搜索词】: {q}\n{res}\n'
+
+        print(f'      [✅ 章节就绪]: {chapter[:20]}... (已获取 2 条核心资料)')
+        return chapter, context
+
+
+    # 并发执行所有章节
+    tasks = [_process_chapter_with_retry(chapter) for chapter in outline]
+    try:
+        results = await asyncio.gather(*tasks)
+        for chapter, context in results:
+            research_data[chapter] = context
+    except Exception as e:
+        print(f"      [研究节点部分失效]: {e}")
+
     return {
         'research_data': research_data,
         'revision_count': revision_count + 1

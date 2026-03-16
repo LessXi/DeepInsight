@@ -1,78 +1,94 @@
-﻿from core.state import ResearchState
+import asyncio
+from core.state import ResearchState
 from core.config import get_llm
+from core.utils import async_retry
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from tools.summarizer import summarize_text
-import time
+from tools.summarizer import async_summarize
 
-def write_node(state: ResearchState):
-    print('--- ✍️ 资深主笔 Agent：正在起草深度报告草稿 ---')
+async def write_node(state: ResearchState):
+    """异步主笔 Agent：基于摘要信息撰写整篇报告"""
+    print('--- ✍️ 智能主笔 Agent：正在高效起草深度报告 ---')
     
     topic = state.get('topic', '')
     outline = state.get('outline', [])
     research_data = state.get('research_data', {})
     feedback = state.get('review_feedback', '')
     
-    context_str = ''
-    for chapter, data in research_data.items():
-        print(f'  [主笔] 正在处理章节资料: {chapter[:15]}... ({len(data)} 字符)')
-        compressed_data = summarize_text(data, max_chars=2000)
-        context_str += f'### 【参考资料】 {chapter} ###\n{compressed_data}\n\n'
+    async def process_chapter_data(chapter, data):
+        # 保持定向摘要
+        compressed_data = await async_summarize(data, topic=topic, chapter=chapter)
+        return f'### 【参考资料】 章节：{chapter} ###\n{compressed_data}\n\n'
+
+    # 并行处理所有章节资料
+    tasks = [process_chapter_data(chapter, data) for chapter, data in research_data.items()]
+    context_list = await asyncio.gather(*tasks)
+    context_str = "".join(context_list)
         
-    llm = get_llm()
+    llm = get_llm(role="writer")
     parser = StrOutputParser()
     
     prompt = ChatPromptTemplate.from_messages([
-        ('system', '''你是一家顶级商业智库的资深主笔（Writer）。
-你的任务是根据提供的【大纲】和【参考资料】，撰写一篇逻辑严密、数据详实、排版精美的深度研究报告。
+        ('system', '''你是一位来自顶级商业咨询机构（如 McKinsey 或 Gartner）的资深合伙人级分析师。
+你的任务是撰写一份具有行业深度、逻辑无懈可击、且具备极高决策参考价值的研究报告。
 
-【排版要求】：
-1. 必须使用 Markdown 格式。
-2. 包含一级标题（报告名称）、二级标题（章节）、三级标题（子观点）以及加粗强调。
-3. 必须在文中引用参考资料里的**具体数据**和**事实**。
-
-【注意事项】：
-1. 严禁编造数据（幻觉），所有数据必须来源于【参考资料】。如果资料里没有，请用专业的行业推测替代并说明。
-2. 保持专业、客观的咨询公司语调。
-'''),
+【写作准则】：
+1. **数据为王**：严禁空谈。必须从【参考资料】中挖掘具体的百分比、市场规模、增长率、公司名称等事实。如果资料中出现具体数字，务必将其体现在报告中。在分析文章的最后列出引文和来源。
+2. **逻辑严密**：章节之间必须有内在的因果或递进逻辑。
+3. **专业语调**：使用冷静、客观、专业且极具穿透力的行文风格。避免使用“非常”、“惊人”等感性词汇。
+4. **核心观点突出**：每个章节都必须有一个核心观点，并且用 **加粗** 的方式突出显示。
+5. **Markdown 审美**：
+   - 使用一级标题作为报告封面。
+   - 使用二级标题区分大章节，三级标题细化核心观点。
+   - 对关键结论、核心数据、专家预测使用 **加粗**。
+   - 适当使用无序列表归纳要点。
+6. **严禁幻觉**：所有的事实和数据必须基于提供的【参考资料】。如果资料不足，请基于现有事实进行合理的专业推测，并注明“行业普遍预期”或“根据现状推断”。'''),
         ('user', '''
-【研究主题】：{topic}
+你现在需要为客户撰写一份关于【{topic}】的深度研究报告。
 
 【报告大纲】：
 {outline}
 
-【审核员修改意见（如果有，请务必针对性修改）】：
+【审核专家反馈】（若有，请务必在撰写时针对性优化）：
 {feedback}
 
-【参考资料】：
+【已筛选的高纯度参考资料】：
 {context}
 
-请开始撰写你的 Markdown 报告：
+---
+请开始你的创作。请确保报告从引人入胜的“执行摘要”开始，以深刻的“行业展望”结束。
+请直接输出 Markdown 内容：
 ''')
     ])
     
     chain = prompt | llm | parser
     
-    print('  ⏳ 正在拼命码字中，这可能需要几十秒...')
-    
-    draft_content = f'# 深度研究报告：{topic}\n\n（生成失败，请检查大模型 API 状态...）'
-    max_retries = 3
-    for attempt in range(max_retries):
-        try:
-            time.sleep(2) # 基础缓冲
-            draft_content = chain.invoke({
-                'topic': topic,
-                'outline': '\n'.join(outline),
-                'feedback': feedback if feedback else '无修改意见，请发挥最佳水平起草初稿。',
-                'context': context_str
-            })
-            print(f'  ✅ 草稿撰写完成！共计 {len(draft_content)} 字。')
-            break
-        except Exception as e:
-            print(f'  [撰写尝试 {attempt+1} 失败]: {e}')
-            if attempt < max_retries - 1:
-                sleep_time = 15 * (attempt + 1)
-                print(f'  ⏳ 触发限流，休眠 {sleep_time} 秒后重试...')
-                time.sleep(sleep_time)
-    
-    return {'draft': draft_content}
+    # 💡 杀手级优化：流式撰写，实时预览
+    async def _stream_writer():
+        print(f'\n      [🚀 流式写作中] 请在下方查看实时生成的 Markdown 正文预览：\n' + '-'*40)
+        full_content = ""
+        # 针对 writer 节点直接开启 astream
+        async for chunk in chain.astream({
+            'topic': topic,
+            'outline': '\n'.join(outline),
+            'feedback': feedback if feedback else '暂无反馈，请直接生成初稿。',
+            'context': context_str
+        }):
+            # 实时流式输出到控制台
+            print(chunk, end="", flush=True)
+            full_content += chunk
+        print('\n' + '-'*40 + f'\n      [✅ 生成完毕] 报告主体已撰写完成，共 {len(full_content)} 字符。')
+        return full_content
+
+    try:
+        # 这里为了保持 @async_retry 的风格，我们可以将流式逻辑包裹在重试装饰器下
+        # 但要注意：如果重试触发，会打印两遍预览
+        @async_retry(max_retries=3, base_delay=10)
+        async def _call_writer_streaming():
+            return await _stream_writer()
+
+        draft = await _call_writer_streaming()
+        return {"draft": draft}
+    except Exception as e:
+        print(f"      [❌ 撰写异常]: {e}")
+        return {"draft": "生成失败，请检查 API 状态。"}
