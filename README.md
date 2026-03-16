@@ -4,15 +4,15 @@
 [![Framework](https://img.shields.io/badge/Framework-LangGraph-orange)](https://github.com/langchain-ai/langgraph)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-> **DeepInsight** 是一个工业级 Multi-Agent 协作框架原型，通过 **LangGraph** 状态机驱动。它模拟了专业智库的协作流程，实现了从模糊主题到深度 Markdown 研报的**全自动、质量受控、具备自我纠错能力**的闭环生产。
+> **DeepInsight** 是一个 Multi-Agent 协作框架原型，通过 **LangGraph** 状态机驱动。模拟了专业智库的协作流程，实现了从模糊主题到深度 Markdown 研报的**全自动、质量受控、具备自我纠错能力**的闭环生产。
 
 ---
 
 ## 🌟 核心价值与定位
 
 在传统的线性 Agent 流（Linear Chains）中，Agent 容易因幻觉（Hallucination）或数据缺失导致最终产物不可用。**DeepInsight** 的核心价值在于：
-*   **非线性编排**：利用 LangGraph 实现复杂的循环逻辑（Loop），支持“审核-打回-重写”的动态反馈。
-*   **工程化韧性**：内置限流保护、指数退避重试及状态持久化，专为生产级 LLM 应用设计。
+*   **非线性编排**：利用 LangGraph 实现复杂的循环逻辑（Loop），加入并发执行机制，支持“审核-打回-重写”的动态反馈。
+*   **工程化落地**：内置限流保护、指数退避重试及状态持久化，以生产级 LLM 应用为目标设计。
 *   **质量守门人**：引入独立的 **Reviewer** 角色，通过事实核查（Fact-Check）确保研报的严谨性。
 
 ---
@@ -63,6 +63,13 @@ graph TD
 ### 3. 多源信息融合
 集成 **Tavily AI Search**，实现了“搜索-筛选-深度读取”的三级检索流，显著降低了长篇报告中的事实错误率。
 
+### 4. 模型池
+在摘要生成模块高速并发调用模型时，为**防止高频调用**引发的connect error，加入模型池机制，可以同时调用不同的模型
+
+### 5. 层级分离设计
+1. LLM Client层和具体的执行逻辑分离。用户可以通过修改 .env 配置文件快速切换模型
+2. 提示词和具体执行逻辑分离。prompt 设计者可以自由设计提示词。工程化逻辑负责鲁棒性，prompt 负责创造性
+
 ---
 
 ## 🚀 快速开始
@@ -86,7 +93,7 @@ cp .env.example .env
 # 在 .env 中填入你的配置信息
 
 # 启动生成
-python main.py --topic "2026年AI空间计算市场趋势分析"
+python main.py --topic "2026年agnet行业分析研报"
 ```
 
 ---
