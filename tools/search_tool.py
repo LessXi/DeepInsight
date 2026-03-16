@@ -14,7 +14,7 @@ def search_web(query: str, max_results: int = 3) -> str:
         print(f'  [同步搜索失败] {e}')
         return '搜索服务当前不可用。'
 
-async def async_search_web(query: str, max_results: int = 3) -> str:
+async def async_search_web(query: str, max_results: int = 2) -> str:
     """异步搜索，用于并行加速"""
     api_key = os.getenv('TAVILY_API_KEY')
     if not api_key or api_key == 'your_tavily_api_key_here':

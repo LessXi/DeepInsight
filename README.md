@@ -1,156 +1,117 @@
-# DeepInsight 🧠
+# 🚀 DeepInsight: 基于 LangGraph 的多智能体闭环研报系统
 
-> 基于 LangGraph 的多智能体深度研报生成系统
+[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue)](https://www.python.org/)
+[![Framework](https://img.shields.io/badge/Framework-LangGraph-orange)](https://github.com/langchain-ai/langgraph)
+[![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-[![Python](https://img.shields.io/badge/Python-3.12-blue.svg)](https://www.python.org/)
-[![LangGraph](https://img.shields.io/badge/LangGraph-1.0-green.svg)](https://www.langchain.com/langgraph)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-## 📖 项目简介
-
-DeepInsight 是一个基于**多智能体协作架构**的深度研究报告生成系统。它通过分工明确的不同 Agent 角色协作，自动完成从主题输入到最终成文的全流程，生成结构严谨、数据支撑的专业深度研报。
-
-### 核心架构
-
-本项目采用当前最流行的 **LangGraph** 状态图架构，实现了多智能体的协作流水线：
-
-```mermaid
-graph LR
-    START[START] --> Planner[Planner<br/>(主编 - 生成大纲)]
-    Planner --> Researcher[Researcher<br/>(研究员 - 联网搜索)]
-    Researcher --> Writer[Writer<br/>(主笔 - 撰写草稿)]
-    Writer --> Reviewer[Reviewer<br/>(审核员 - 事实核查)]
-    Reviewer -- 通过 --> END[END]
-    Reviewer -- 不通过 --> Researcher
-```
-
-### 角色分工
-
-| 角色 | 职责 |
-|------|------|
-| 🧠 **Planner 主编** | 将用户输入的模糊主题拆解为结构化的报告大纲 |
-| 🕵️ **Researcher 研究员** | 根据大纲每个章节，生成搜索词并联网查找最新资料 |
-| ✍️ **Writer 主笔** | 根据大纲和收集到的资料，撰写完整的Markdown格式研报 |
-| ⚖️ **Reviewer 审核员** | 检查报告是否有足够数据支撑，不合格则打回重写 |
-
-## ✨ 项目特色
-
-- **清晰的多agent协作架构**：基于LangGraph状态管理，支持条件循环（审核不通过自动返工）
-- **工程化完善**：完整的错误重试、限流退避、熔断机制，防止死循环
-- **灵活配置**：支持任何OpenAI兼容接口（OpenAI、DeepSeek、ModelScope等）
-- **联网搜索**：集成Tavily搜索引擎，获取最新数据
-- **输出规范**：强制生成格式化Markdown，便于阅读和分享
-
-## 🚀 快速开始
-
-### 1. 克隆项目
-
-```bash
-git clone <your-repo-url>/DeepInsight.git
-cd DeepInsight
-```
-
-### 2. 创建虚拟环境并安装依赖
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# 或者 .venv\Scripts\activate  # Windows
-pip install -r requirements.txt
-```
-
-### 3. 配置环境变量
-
-复制 `.env.example` 到 `.env` 并填写你的API密钥：
-
-```bash
-cp .env.example .env
-```
-
-编辑 `.env`：
-
-```env
-# OpenAI API 密钥（或兼容接口的密钥）
-OPENAI_API_KEY=your_api_key_here
-
-# （可选）自定义API地址，用于DeepSeek/ModelScope等
-OPENAI_API_BASE=https://api.openai.com/v1/
-
-# 模型名称
-MODEL_NAME=gpt-4o-mini
-
-# Tavily 搜索API密钥（获取地址：https://tavily.com/）
-TAVILY_API_KEY=your_tavily_key_here
-```
-
-### 4. 运行生成
-
-```bash
-python main.py
-```
-
-默认会生成一篇关于"2026年AI空间计算硬件发展趋势"的研报，你可以修改 `main.py` 中的主题，或者后续我们会加上命令行参数支持任意主题。
-
-生成完成后，结果会保存在 `output_report.md`。
-
-## 📦 项目结构
-
-```
-DeepInsight/
-├── agents/             # 各个智能体实现
-│   ├── planner.py      # 主编 - 生成大纲
-│   ├── researcher.py   # 研究员 - 搜索资料
-│   ├── writer.py       # 主笔 - 撰写草稿
-│   └── reviewer.py     # 审核员 - 质量检查
-├── core/               # 核心基础设施
-│   ├── config.py       # 大模型配置
-│   ├── graph.py        # LangGraph 状态图构建
-│   └── state.py        # 状态定义
-├── tools/              # 工具函数
-│   ├── search_tool.py  # 联网搜索工具
-│   └── summarizer.py  # 文本摘要工具
-├── main.py             # 入口文件
-├── requirements.txt    # 依赖列表
-├── .env                # 环境变量（gitignore）
-└── README.md           # 项目文档
-```
-
-## 🛠️ 技术栈
-
-- **LangGraph**: 多智能体状态编排
-- **LangChain**: LLM 应用框架
-- **Tavily**: 专业AI搜索引擎
-- **Pydantic**: 数据验证
-- **OpenAI API**: 大模型调用（兼容所有OpenAI格式接口）
-
-## 🎯 设计思路
-
-### 为什么用多Agent而不是单Agent？
-
-- **职责分离**：每个Agent只做一件事，prompt更精简，准确率更高
-- **可观测性**：每个步骤都可以单独调试、输出日志
-- **可扩展性**：方便增加新的角色（比如插画师、校对员等）
-- **质量可控**：通过审核-返工循环，提升输出质量
-
-### 工程亮点
-
-1. **限流退避重试**：API限流时自动等待重试，提高成功率
-2. **死循环保护**：最大重试次数限制，避免无限循环
-3. **兜底机制**：LLM调用失败时提供默认输出，保证流程不中断
-4. **Token控制**：审核时截断过长文本，避免超出上下文窗口
-
-## 📝 示例输出
-
-TODO: 添加生成好的研报示例截图
-
-## 🤝 贡献
-
-欢迎提Issue和PR！
-
-## 📄 License
-
-MIT License
+> **DeepInsight** 是一个工业级 Multi-Agent 协作框架原型，通过 **LangGraph** 状态机驱动。它模拟了专业智库的协作流程，实现了从模糊主题到深度 Markdown 研报的**全自动、质量受控、具备自我纠错能力**的闭环生产。
 
 ---
 
-*Built with ❤️ for Agent development learning*
+## 🌟 核心价值与定位
+
+在传统的线性 Agent 流（Linear Chains）中，Agent 容易因幻觉（Hallucination）或数据缺失导致最终产物不可用。**DeepInsight** 的核心价值在于：
+*   **非线性编排**：利用 LangGraph 实现复杂的循环逻辑（Loop），支持“审核-打回-重写”的动态反馈。
+*   **工程化韧性**：内置限流保护、指数退避重试及状态持久化，专为生产级 LLM 应用设计。
+*   **质量守门人**：引入独立的 **Reviewer** 角色，通过事实核查（Fact-Check）确保研报的严谨性。
+
+---
+
+## 🏗️ 架构设计 (Architecture)
+
+系统采用高度解耦的四角色协作模型，所有状态流转均通过 `StateGraph` 进行严格定义。
+
+### 工作流拓扑图
+```mermaid
+graph TD
+    Start((开始)) --> Planner[Planner: 逻辑拆解]
+    Planner --> Researcher[Researcher: 深度搜索]
+    Researcher --> Writer[Writer: Markdown 撰写]
+    Writer --> Reviewer{Reviewer: 质量终审}
+    
+    Reviewer -- "数据不足/逻辑漏洞" --> Researcher
+    Reviewer -- "达标" --> End((输出研报))
+```
+
+---
+
+## 🤖 智能体角色定义 (Multi-Agent Roles)
+
+| 角色 | 核心职责 | 关键技术点 |
+| :--- | :--- | :--- |
+| **Planner (主编)** | 任务拆解与大纲生成 | Few-shot Prompting, 逻辑树构建 |
+| **Researcher (研究员)** | 跨源数据检索与清洗 | Tavily API, 内容去重, 结构化提取 |
+| **Writer (主笔)** | 文本创作与 Markdown 格式化 | 上下文窗口管理, 写作风格控制 |
+| **Reviewer (审核员)** | 事实核查与质量反馈 | 判定性 Prompting, 条件路由 (Conditional Edges) |
+
+---
+
+## 🛠️ 技术亮点与工程实践 (Job-Hunting Highlights)
+
+
+### 1. 复杂状态管理与循环纠错
+不同于简单的 `AgentExecutor`，本项目深度定制了 `StateGraph`。
+*   **难点**：如何确保 Agent 在多次循环中不迷失方向？
+*   **方案**：设计了包含 `revision_count` 的全局状态对象，配合动态 Prompt，使 Researcher 能针对 Reviewer 的反馈意见进行“定向补课”。
+
+### 2. 工程化鲁棒性设计
+本项目实现期间一直调用Modelscope的API，针对 LLM 调用不稳定的痛点，实现了：
+*   **Rate Limiting**: 适配 OpenAI 接口的并发限制。
+*   **Circuit Breaker**: 自动检测死循环，超过最大修订次数后强制熔断并输出当前最优版本。
+*   **Pydantic Validation**: 强制所有 Agent 输出符合 Schema 定义的结构化 JSON。
+
+### 3. 多源信息融合
+集成 **Tavily AI Search**，实现了“搜索-筛选-深度读取”的三级检索流，显著降低了长篇报告中的事实错误率。
+
+---
+
+## 🚀 快速开始
+
+### 环境准备
+*   Python 3.12+
+*   Tavily API Key (用于联网搜索)
+*   OpenAI 兼容接口 (DeepSeek / ModelScope / OpenAI)
+
+### 安装与运行
+```bash
+# 克隆仓库
+git clone https://github.com/LessXi/DeepInsight.git
+cd DeepInsight
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 配置环境变量
+cp .env.example .env
+# 在 .env 中填入你的配置信息
+
+# 启动生成
+python main.py --topic "2026年AI空间计算市场趋势分析"
+```
+
+---
+
+## 📊 效果演示 (Showcase)
+
+> [!TIP]
+> **生成的报告样本可见：[2026年AI空间计算研报.md](output_report.md)**
+
+生成报告包含：项目背景、技术路线对比、市场规模预测、核心玩家分析、风险提示等 10+ 个标准章节。
+
+---
+
+## 🗺️ 未来路线图 (Roadmap)
+
+- [ ] **多模态支持**：自动根据数据生成图表并嵌入 Markdown。
+- [ ] **交互式 UI**：基于 Streamlit 实现可视化生成进度条。
+- [ ] **本地模型适配**：支持 Llama3 / Qwen 等模型本地运行以保护隐私。
+- [ ] **记忆系统**：实现RAG和Memory模块以更精准的管理Context
+
+---
+
+## 🤝 贡献与致谢
+
+Built for Agent development learning. 
+如果你觉得这个项目对你有帮助，欢迎 **Star ⭐️** 支持！
+
+
